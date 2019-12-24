@@ -77,4 +77,14 @@ mod tests {
 
         assert_eq!(r_gen, r_gen_chk);
     }
+
+    #[test]
+    fn serialization() {
+        let mut rng = OsRng;
+        let p = RistrettoPoint::random(&mut rng);
+        let buf = p.serialize();
+        let p_chk = RistrettoPoint::deserialize(buf)
+                        .expect("Failed to deserialize point");
+        assert_eq!(p, p_chk)
+    }
 }
