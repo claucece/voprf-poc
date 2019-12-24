@@ -1,53 +1,64 @@
 use curve25519_dalek::ristretto::{RistrettoPoint, CompressedRistretto};
 use curve25519_dalek::constants;
-use super::PrimeOrderGroup;
 use super::GroupElement;
 use super::Scalar;
 use std::io::Error;
-use super::super::super::errors::ERR_DESERIALIZATION;
+use super::super::super::errors::err_deserialization;
+use sha2::Sha512;
 
 const RISTRETTO_BYTE_LENGTH:usize = 32;
 
 impl GroupElement for RistrettoPoint {
+    // generator
+    fn generator() -> Self {
+        constants::RISTRETTO_BASEPOINT_POINT
+    }
+
+    // generator_mul
+    fn generator_mul(r: Scalar) -> Self {
+        let g = RistrettoPoint::generator();
+        g.scalar_mult(r)
+    }
+
+    // byte_length
+    fn byte_length() -> usize {
+        RISTRETTO_BYTE_LENGTH
+    }
+
+    // deserialize
+    fn deserialize(buf: Vec<u8>) -> Result<Self, Error> {
+        let mut compressed = CompressedRistretto([0u8; RISTRETTO_BYTE_LENGTH]);
+        compressed.0.copy_from_slice(&buf[..RISTRETTO_BYTE_LENGTH]);
+        match compressed.decompress() {
+            Some(rp) => return Ok(rp),
+            None => return Err(err_deserialization())
+        }
+    }
+
+    // encode_to_group
+    fn encode_to_group(buf: Vec<u8>) -> Self {
+        RistrettoPoint::hash_from_bytes::<Sha512>(buf.as_slice())
+    }
+
     // valid point
     fn is_valid(&self) -> bool {
         true
     }
 
     // add
-    fn add(&self, point: Box<dyn GroupElement>) -> Box<dyn GroupElement> {
-        let x = *point;
-        Box::new(self + x)
+    fn add(&self, point: Self) -> Self {
+        self + point
     }
 
     // scalar_mult
-    fn scalar_mult(&self, r: Scalar) -> Box<dyn GroupElement> {
-        Box::new(self * r)
+    fn scalar_mult(&self, r: Scalar) -> Self {
+        self * r
     }
 
     // serialize
     fn serialize(&self) -> Vec<u8> {
         let cmp = self.compress();
         cmp.to_bytes().to_vec()
-    }
-
-    // deserialize
-    fn deserialize(&self, buf: Vec<u8>) -> Result<Box<dyn GroupElement>, Error> {
-        let mut compressed = CompressedRistretto([0u8; RISTRETTO_BYTE_LENGTH]);
-        compressed.0.copy_from_slice(&buf[..RISTRETTO_BYTE_LENGTH]);
-        match compressed.decompress() {
-            Some(rp) => return Ok(Box::new(rp)),
-            None => return Err(ERR_DESERIALIZATION)
-        }
-    }
-}
-
-fn create_ristretto255_group() -> PrimeOrderGroup {
-    PrimeOrderGroup{
-        name: "ristretto255",
-        byte_length: RISTRETTO_BYTE_LENGTH,
-        generator: constants::RISTRETTO_BASEPOINT_POINT,
-        map: RistrettoPoint::hash_from_bytes
     }
 }
 

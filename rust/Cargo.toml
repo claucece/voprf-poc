@@ -1,6 +1,6 @@
 [package]
 name = "voprf-poc-rs"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Alex Davidson <coela@alxdavids.xyz>"]
 edition = "2018"
 
@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 curve25519-dalek = "2.0.0"
+sha2 = "0.8.0"
