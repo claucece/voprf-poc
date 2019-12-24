@@ -64,8 +64,17 @@ impl CyclicGroupElement for RistrettoPoint {
 
 #[cfg(test)]
 mod tests {
+    use rand::rngs::OsRng;
+    use super::{RistrettoPoint,Scalar,CyclicGroupElement};
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn generator_mul() {
+        let mut rng = OsRng;
+        let r = Scalar::random(&mut rng);
+        let r_gen = RistrettoPoint::generator_mul(r);
+        let gen = RistrettoPoint::generator();
+        let r_gen_chk = gen.scalar_mult(r);
+
+        assert_eq!(r_gen, r_gen_chk);
     }
 }
