@@ -1,6 +1,6 @@
 use curve25519_dalek::ristretto::{RistrettoPoint, CompressedRistretto};
 use curve25519_dalek::constants;
-use super::GroupElement;
+use super::CyclicGroupElement;
 use super::Scalar;
 use std::io::Error;
 use super::super::super::errors::err_deserialization;
@@ -8,7 +8,7 @@ use sha2::Sha512;
 
 const RISTRETTO_BYTE_LENGTH:usize = 32;
 
-impl GroupElement for RistrettoPoint {
+impl CyclicGroupElement for RistrettoPoint {
     // generator
     fn generator() -> Self {
         constants::RISTRETTO_BASEPOINT_POINT

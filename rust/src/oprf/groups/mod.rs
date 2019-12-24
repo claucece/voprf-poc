@@ -3,7 +3,7 @@ pub mod ristretto;
 use std::io::Error;
 use curve25519_dalek::scalar::Scalar;
 
-pub trait GroupElement: Sized {
+pub trait CyclicGroupElement: Sized {
     fn generator() -> Self;
     fn generator_mul(r: Scalar) -> Self;
     fn byte_length() -> usize;
