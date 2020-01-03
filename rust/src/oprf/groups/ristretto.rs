@@ -16,7 +16,7 @@ impl PrimeOrderGroup<RistrettoPoint,Sha512> {
         PrimeOrderGroup{
             generator: RISTRETTO_BASEPOINT_POINT,
             byte_length: RISTRETTO_BYTE_LENGTH,
-            hash: || Sha512::new(),
+            hash: || ristretto_hash(),
             deserialize: |buf: Vec<u8>| {
                 let mut compressed = CompressedRistretto([0u8; RISTRETTO_BYTE_LENGTH]);
                 compressed.0.copy_from_slice(&buf[..RISTRETTO_BYTE_LENGTH]);
@@ -39,19 +39,73 @@ impl PrimeOrderGroup<RistrettoPoint,Sha512> {
                 p * inv_sc
             },
             serialize: |p: RistrettoPoint| {
-                let cmp = p.compress();
-                cmp.to_bytes().to_vec()
+                ristretto_serialize(p)
             },
             random_element: || {
                 let mut rng = OsRng;
                 RistrettoPoint::random(&mut rng)
             },
             uniform_bytes: || {
-                let random_vec = rand_bytes(RISTRETTO_BYTE_LENGTH);
-                ristretto_convert_vec_to_fixed(random_vec).to_vec()
-            }
+                ristretto_sample_uniform_bytes()
+            },
+            // DLEQ functions
+            dleq_generate: |key: Vec<u8>, pub_key: RistrettoPoint, input: RistrettoPoint, eval: RistrettoPoint| {
+                let t = ristretto_scalar_from_vec(ristretto_sample_uniform_bytes());
+                let a = RISTRETTO_BASEPOINT_POINT * t;
+                let b = input * t;
+                let c = ristretto_dleq_hash(pub_key, input, eval, a, b);
+                let c_sc = ristretto_scalar_from_vec(c.clone());
+                let s_sc = t - (c_sc * ristretto_scalar_from_vec(key));
+                [c, s_sc.as_bytes().to_vec()]
+            },
+            dleq_verify: |pub_key: RistrettoPoint, input: RistrettoPoint, eval: RistrettoPoint, proof: [Vec<u8>; 2]| {
+                let g = RISTRETTO_BASEPOINT_POINT;
+                let c_proof = proof[0].to_vec();
+                let c_sc = ristretto_scalar_from_vec(c_proof.clone());
+                let s_sc = ristretto_scalar_from_vec(proof[1].to_vec());
+                let s_g = g * s_sc;
+                let c_pk = pub_key * c_sc;
+                let a = s_g + c_pk;
+                let s_m = input * s_sc;
+                let c_z = eval * c_sc;
+                let b = s_m + c_z;
+                let c_vrf = ristretto_dleq_hash(pub_key, input, eval, a, b);
+                return c_proof == c_vrf;
+            },
+            batch_dleq_generate: |key: Vec<u8>, pub_key: RistrettoPoint, input: Vec<RistrettoPoint>, eval: Vec<RistrettoPoint>| {
+                [Vec::new(), Vec::new()]
+            },
+            batch_dleq_verify: |pub_key: RistrettoPoint, input: Vec<RistrettoPoint>, eval: Vec<RistrettoPoint>, proof: [Vec<u8>; 2]| {
+                false
+            },
         }
     }
+}
+
+fn ristretto_dleq_hash(y: RistrettoPoint, m: RistrettoPoint, z: RistrettoPoint, a: RistrettoPoint, b: RistrettoPoint) -> Vec<u8> {
+    let mut hash = ristretto_hash();
+    hash.input(ristretto_serialize(RISTRETTO_BASEPOINT_POINT));
+    hash.input(ristretto_serialize(y));
+    hash.input(ristretto_serialize(m));
+    hash.input(ristretto_serialize(z));
+    hash.input(ristretto_serialize(a));
+    hash.input(ristretto_serialize(b));
+    hash.result().to_vec()
+}
+
+fn ristretto_serialize(p: RistrettoPoint) -> Vec<u8> {
+    let cmp = p.compress();
+    cmp.to_bytes().to_vec()
+}
+
+fn ristretto_hash() -> Sha512 {
+    Sha512::new()
+}
+
+// ristretto utility functions
+fn ristretto_sample_uniform_bytes() -> Vec<u8> {
+    let random_vec = rand_bytes(RISTRETTO_BYTE_LENGTH);
+    ristretto_convert_vec_to_fixed(random_vec).to_vec()
 }
 
 fn ristretto_convert_vec_to_fixed(x: Vec<u8>) -> [u8; 32] {
@@ -73,7 +127,7 @@ mod tests {
 
     #[test]
     fn ristretto_serialization() {
-        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let pog = PrimeOrderGroup::ristretto_255();
         let p = (pog.random_element)();
         let buf = (pog.serialize)(p);
         let p_chk = (pog.deserialize)(buf)
@@ -84,7 +138,7 @@ mod tests {
     #[test]
     fn ristretto_err_ser() {
         // trigger error if buffer is malformed
-        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let pog = PrimeOrderGroup::ristretto_255();
         let mut buf = (pog.serialize)((pog.random_element)());
         // modify the buffer
         buf[0] = buf[0]+1;
@@ -99,7 +153,7 @@ mod tests {
 
     #[test]
     fn ristretto_point_mult() {
-        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let pog = PrimeOrderGroup::ristretto_255();
         let p = (pog.random_element)();
         let r1 = (pog.uniform_bytes)();
         let r2 = (pog.uniform_bytes)();
@@ -117,7 +171,7 @@ mod tests {
 
     #[test]
     fn ristretto_encode_to_group() {
-        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let pog = PrimeOrderGroup::ristretto_255();
         let buf: [u8; 32] = [0; 32];
         let p = (pog.encode_to_group)(buf.to_vec());
         let ser = (pog.serialize)(p);
@@ -132,7 +186,7 @@ mod tests {
 
     #[test]
     fn ristretto_rand_bytes() {
-        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let pog = PrimeOrderGroup::ristretto_255();
         let r = (pog.uniform_bytes)();
         let clone = r.clone();
         assert_eq!(r.len(), pog.byte_length);
@@ -145,12 +199,58 @@ mod tests {
 
     #[test]
     fn ristretto_inverse_mult() {
-        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let pog = PrimeOrderGroup::ristretto_255();
         let r = (pog.uniform_bytes)();
         let inv = ristretto_scalar_from_vec(r.clone()).invert().to_bytes().to_vec();
         let p = (pog.random_element)();
         let r_p = (pog.scalar_mult)(p, r);
         let inv_r_p = (pog.scalar_mult)(r_p, inv);
         assert_eq!(inv_r_p, p);
+    }
+
+    #[test]
+    fn ristretto_dleq() {
+        let pog = PrimeOrderGroup::ristretto_255();
+
+        // mimic oprf operations
+        let key = (pog.uniform_bytes)();
+        let pub_key = (pog.scalar_mult)(pog.generator, key.clone());
+        let m = (pog.random_element)();
+        let z = (pog.scalar_mult)(m, key.clone());
+
+        // generate proof
+        let proof = (pog.dleq_generate)(key, pub_key, m, z);
+        assert_eq!(proof.len(), 2);
+
+        // verify proof
+        assert_eq!((pog.dleq_verify)(pub_key, m, z, proof), true);
+    }
+
+    #[test]
+    fn ristretto_dleq_fail() {
+        let pog = PrimeOrderGroup::ristretto_255();
+
+        // mimic oprf operations
+        let key_1 = (pog.uniform_bytes)();
+        let key_2 = (pog.uniform_bytes)();
+        let pub_key_1 = (pog.scalar_mult)(pog.generator, key_1.clone());
+        let pub_key_2 = (pog.scalar_mult)(pog.generator, key_2.clone());
+        let m = (pog.random_element)();
+        let z_1 = (pog.scalar_mult)(m, key_1.clone());
+        let z_2 = (pog.scalar_mult)(m, key_2.clone());
+
+        // generate proof
+        let proof = (pog.dleq_generate)(key_1.clone(), pub_key_1, m, z_2);
+        assert_eq!(proof.len(), 2);
+
+        // verify proof
+        assert_eq!((pog.dleq_verify)(pub_key_1, m, z_2, proof), false);
+
+        // generate proof
+        let proof = (pog.dleq_generate)(key_1, pub_key_2, m, z_1);
+        assert_eq!(proof.len(), 2);
+
+        // verify proof
+        assert_eq!((pog.dleq_verify)(pub_key_2, m, z_1, proof), false);
     }
 }

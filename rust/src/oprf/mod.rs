@@ -33,7 +33,7 @@ pub struct Input<T> {
 
 pub struct Evaluation<T>{
     elems: Vec<T>,
-    proof: Option<Vec<u8>>
+    proof: Option<[Vec<u8>; 2]>
 }
 
 // protocol participant
