@@ -1,13 +1,17 @@
 use curve25519_dalek::ristretto::{RistrettoPoint, CompressedRistretto};
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use curve25519_dalek::scalar::Scalar;
+
 use super::PrimeOrderGroup;
 use super::super::super::utils::rand_bytes;
-use std::io::Error;
+use super::super::super::utils::hkdf::Hkdf;
 use super::super::super::errors::err_deserialization;
+
 use sha2::Sha512;
 use sha2::Digest;
 use rand_core::OsRng;
+use byteorder::{LittleEndian, WriteBytesExt};
+use std::io::Error;
 
 const RISTRETTO_BYTE_LENGTH: usize = 32;
 
@@ -50,13 +54,7 @@ impl PrimeOrderGroup<RistrettoPoint,Sha512> {
             },
             // DLEQ functions
             dleq_generate: |key: Vec<u8>, pub_key: RistrettoPoint, input: RistrettoPoint, eval: RistrettoPoint| {
-                let t = ristretto_scalar_from_vec(ristretto_sample_uniform_bytes());
-                let a = RISTRETTO_BASEPOINT_POINT * t;
-                let b = input * t;
-                let c = ristretto_dleq_hash(pub_key, input, eval, a, b);
-                let c_sc = ristretto_scalar_from_vec(c.clone());
-                let s_sc = t - (c_sc * ristretto_scalar_from_vec(key));
-                [c, s_sc.as_bytes().to_vec()]
+                ristretto_dleq_gen(key, pub_key, input, eval)
             },
             dleq_verify: |pub_key: RistrettoPoint, input: RistrettoPoint, eval: RistrettoPoint, proof: [Vec<u8>; 2]| {
                 let g = RISTRETTO_BASEPOINT_POINT;
@@ -69,27 +67,92 @@ impl PrimeOrderGroup<RistrettoPoint,Sha512> {
                 let s_m = input * s_sc;
                 let c_z = eval * c_sc;
                 let b = s_m + c_z;
-                let c_vrf = ristretto_dleq_hash(pub_key, input, eval, a, b);
+                let c_vrf = ristretto_dleq_hash([pub_key, input, eval, a, b].to_vec());
                 return c_proof == c_vrf;
             },
-            batch_dleq_generate: |key: Vec<u8>, pub_key: RistrettoPoint, input: Vec<RistrettoPoint>, eval: Vec<RistrettoPoint>| {
-                [Vec::new(), Vec::new()]
+            batch_dleq_generate: |key: Vec<u8>, pub_key: RistrettoPoint, inputs: Vec<RistrettoPoint>, evals: Vec<RistrettoPoint>| {
+                assert_eq!(inputs.len(), evals.len());
+                let seed = ristretto_batch_dleq_seed(pub_key, inputs.clone(), evals.clone());
+                let [comp_m, comp_z] = ristretto_compute_composites(seed, inputs, evals);
+                ristretto_dleq_gen(key, pub_key, comp_m, comp_z)
             },
-            batch_dleq_verify: |pub_key: RistrettoPoint, input: Vec<RistrettoPoint>, eval: Vec<RistrettoPoint>, proof: [Vec<u8>; 2]| {
-                false
+            batch_dleq_verify: |pub_key: RistrettoPoint, inputs: Vec<RistrettoPoint>, evals: Vec<RistrettoPoint>, proof: [Vec<u8>; 2]| {
+                assert_eq!(inputs.len(), evals.len());
+                let seed = ristretto_batch_dleq_seed(pub_key, inputs.clone(), evals.clone());
+                let [comp_m, comp_z] = ristretto_compute_composites(seed, inputs, evals);
+                ristretto_dleq_vrf(pub_key, comp_m, comp_z, proof)
             },
         }
     }
 }
 
-fn ristretto_dleq_hash(y: RistrettoPoint, m: RistrettoPoint, z: RistrettoPoint, a: RistrettoPoint, b: RistrettoPoint) -> Vec<u8> {
+fn ristretto_dleq_gen(key: Vec<u8>, pub_key: RistrettoPoint, input: RistrettoPoint, eval: RistrettoPoint) -> [Vec<u8>; 2] {
+    let t = ristretto_scalar_from_vec(ristretto_sample_uniform_bytes());
+    let a = RISTRETTO_BASEPOINT_POINT * t;
+    let b = input * t;
+    let c = ristretto_dleq_hash([pub_key, input, eval, a, b].to_vec());
+    let c_sc = ristretto_scalar_from_vec(c.clone());
+    let s_sc = t - (c_sc * ristretto_scalar_from_vec(key));
+    [c, s_sc.as_bytes().to_vec()]
+}
+
+fn ristretto_dleq_vrf(pub_key: RistrettoPoint, input: RistrettoPoint, eval: RistrettoPoint, proof: [Vec<u8>; 2]) -> bool {
+    let g = RISTRETTO_BASEPOINT_POINT;
+    let c_proof = proof[0].to_vec();
+    let c_sc = ristretto_scalar_from_vec(c_proof.clone());
+    let s_sc = ristretto_scalar_from_vec(proof[1].to_vec());
+    let s_g = g * s_sc;
+    let c_pk = pub_key * c_sc;
+    let a = s_g + c_pk;
+    let s_m = input * s_sc;
+    let c_z = eval * c_sc;
+    let b = s_m + c_z;
+    let c_vrf = ristretto_dleq_hash([pub_key, input, eval, a, b].to_vec());
+    c_proof == c_vrf
+}
+
+// TODO: add these to the impl of some utility struct?
+fn ristretto_compute_composites(seed: Vec<u8>, inputs: Vec<RistrettoPoint>, evals: Vec<RistrettoPoint>) -> [RistrettoPoint; 2] {
+    // init these with dummy values
+    let mut comp_m: RistrettoPoint = RISTRETTO_BASEPOINT_POINT;
+    let mut comp_z: RistrettoPoint = RISTRETTO_BASEPOINT_POINT;
+    for i in 0..inputs.len() {
+        let m_i = inputs[i];
+        let z_i = evals[i];
+        let mut i_vec = Vec::new();
+        i_vec.write_u32::<LittleEndian>(i as u32).unwrap();
+        let d_i = ristretto_scalar_from_vec(Hkdf{}.extract(seed.clone(), i_vec));
+        let dm_i = m_i * d_i;
+        let dz_i = z_i * d_i;
+
+        match i {
+            0 => {
+                // should always overwrite dummy values
+                comp_m = dm_i;
+                comp_z = dz_i;
+            }
+            _ => {
+                comp_m = comp_m + dm_i;
+                comp_z = comp_z + dz_i;
+            }
+        };
+    }
+    [comp_m, comp_z]
+}
+
+fn ristretto_batch_dleq_seed(y: RistrettoPoint, m: Vec<RistrettoPoint>, z: Vec<RistrettoPoint>) -> Vec<u8> {
+    let mut inputs = [y].to_vec();
+    inputs.extend(m);
+    inputs.extend(z);
+    ristretto_dleq_hash(inputs)
+}
+
+fn ristretto_dleq_hash(to_hash: Vec<RistrettoPoint>) -> Vec<u8> {
     let mut hash = ristretto_hash();
     hash.input(ristretto_serialize(RISTRETTO_BASEPOINT_POINT));
-    hash.input(ristretto_serialize(y));
-    hash.input(ristretto_serialize(m));
-    hash.input(ristretto_serialize(z));
-    hash.input(ristretto_serialize(a));
-    hash.input(ristretto_serialize(b));
+    for p in to_hash {
+        hash.input(ristretto_serialize(p));
+    }
     hash.result().to_vec()
 }
 
@@ -121,9 +184,8 @@ fn ristretto_scalar_from_vec(x: Vec<u8>) -> Scalar {
 
 #[cfg(test)]
 mod tests {
-    use super::{RistrettoPoint,PrimeOrderGroup,ristretto_scalar_from_vec,ristretto_convert_vec_to_fixed};
+    use super::{PrimeOrderGroup,ristretto_scalar_from_vec,ristretto_convert_vec_to_fixed};
     use super::err_deserialization;
-    use super::Sha512;
 
     #[test]
     fn ristretto_serialization() {
@@ -224,6 +286,30 @@ mod tests {
 
         // verify proof
         assert_eq!((pog.dleq_verify)(pub_key, m, z, proof), true);
+    }
+
+    #[test]
+    fn ristretto_batch_dleq() {
+        let pog = PrimeOrderGroup::ristretto_255();
+
+        // mimic oprf operations
+        let key = (pog.uniform_bytes)();
+        let pub_key = (pog.scalar_mult)(pog.generator, key.clone());
+
+        let mut inputs = Vec::new();
+        let mut evals = Vec::new();
+        for _ in 0..10 {
+            let m = (pog.random_element)();
+            inputs.push(m);
+            evals.push((pog.scalar_mult)(m, key.clone()));
+        }
+
+        // generate proof
+        let proof = (pog.batch_dleq_generate)(key, pub_key, inputs.clone(), evals.clone());
+        assert_eq!(proof.len(), 2);
+
+        // verify proof
+        assert_eq!((pog.batch_dleq_verify)(pub_key, inputs, evals, proof), true);
     }
 
     #[test]
