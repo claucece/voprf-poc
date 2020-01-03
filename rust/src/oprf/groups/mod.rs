@@ -13,7 +13,8 @@ pub struct PrimeOrderGroup<T,H> {
     pub is_equal: fn(T, T) -> bool,
     pub add: fn(T, T) -> T,
     pub scalar_mult: fn(T, Scalar) -> T,
-    pub random: fn() -> T,
+    pub random_element: fn() -> T,
+    pub uniform_bytes: fn() -> Vec<u8>,
     pub serialize: fn(T) -> Vec<u8>,
     pub deserialize: fn(Vec<u8>) -> Result<T, Error>,
 }
