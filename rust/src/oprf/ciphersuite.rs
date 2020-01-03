@@ -1,5 +1,4 @@
-use hmac::Hmac;
-use hmac::Mac;
+use hmac::{Hmac,Mac};
 use digest::Digest;
 
 // supported primitives
@@ -59,11 +58,10 @@ impl<T,H> Ciphersuite<T,H>
     }
 
     // h2
-    pub fn h2(&self, key: Vec<u8>, inp: Vec<u8>) -> Result<Vec<u8>, Error> {
+    pub fn h2(&self, key: Vec<u8>) -> Result<Hmac<H>, Error> {
         match Hmac::<H>::new_varkey(&key) {
             Ok(mut mac) => {
-                mac.input(&inp);
-                return Ok(mac.result().code().to_vec());
+                return Ok(mac);
             },
             Err(_) => return Err(err_finalization())
         }

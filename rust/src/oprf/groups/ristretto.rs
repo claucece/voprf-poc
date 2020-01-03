@@ -32,8 +32,11 @@ impl PrimeOrderGroup<RistrettoPoint,Sha512> {
             is_equal: |p1: RistrettoPoint, p2: RistrettoPoint| &p1 == &p2,
             add: |p1: RistrettoPoint, p2: RistrettoPoint| p1 + p2,
             scalar_mult: |p: RistrettoPoint, r: Vec<u8>| {
-                let r_sc = Scalar::from_bytes_mod_order(ristretto_convert_vec_to_fixed(r));
-                p * r_sc
+                p * ristretto_scalar_from_vec(r)
+            },
+            inverse_mult: |p: RistrettoPoint, r: Vec<u8>| {
+                let inv_sc = ristretto_scalar_from_vec(r).invert();
+                p * inv_sc
             },
             serialize: |p: RistrettoPoint| {
                 let cmp = p.compress();
@@ -58,10 +61,13 @@ fn ristretto_convert_vec_to_fixed(x: Vec<u8>) -> [u8; 32] {
     inp_bytes
 }
 
+fn ristretto_scalar_from_vec(x: Vec<u8>) -> Scalar {
+    Scalar::from_bytes_mod_order(ristretto_convert_vec_to_fixed(x))
+}
+
 #[cfg(test)]
 mod tests {
-    use rand_core::OsRng;
-    use super::{RistrettoPoint,Scalar,PrimeOrderGroup,ristretto_convert_vec_to_fixed};
+    use super::{RistrettoPoint,PrimeOrderGroup,ristretto_scalar_from_vec,ristretto_convert_vec_to_fixed};
     use super::err_deserialization;
     use super::Sha512;
 
@@ -102,8 +108,8 @@ mod tests {
         let r1_p = (pog.scalar_mult)(p, r1);
         let r2_p = (pog.scalar_mult)(p, r2);
         let add_p = (pog.add)(r1_p, r2_p);
-        let r1_sc = Scalar::from_bytes_mod_order(ristretto_convert_vec_to_fixed(r1_clone));
-        let r2_sc = Scalar::from_bytes_mod_order(ristretto_convert_vec_to_fixed(r2_clone));
+        let r1_sc = ristretto_scalar_from_vec(r1_clone);
+        let r2_sc = ristretto_scalar_from_vec(r2_clone);
         let r1_r2_sc = r1_sc + r2_sc;
         let mult_p = (pog.scalar_mult)(p, r1_r2_sc.to_bytes().to_vec());
         assert_eq!((pog.is_equal)(add_p, mult_p), true);
@@ -135,5 +141,16 @@ mod tests {
         for i in 0..pog.byte_length {
             assert_eq!(clone[i], fixed[i]);
         }
+    }
+
+    #[test]
+    fn ristretto_inverse_mult() {
+        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let r = (pog.uniform_bytes)();
+        let inv = ristretto_scalar_from_vec(r.clone()).invert().to_bytes().to_vec();
+        let p = (pog.random_element)();
+        let r_p = (pog.scalar_mult)(p, r);
+        let inv_r_p = (pog.scalar_mult)(r_p, inv);
+        assert_eq!(inv_r_p, p);
     }
 }
