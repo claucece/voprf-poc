@@ -1,7 +1,6 @@
 pub mod ristretto;
 
 use std::io::Error;
-use curve25519_dalek::scalar::Scalar;
 
 #[derive(Debug, Clone)]
 pub struct PrimeOrderGroup<T,H> {
@@ -12,7 +11,7 @@ pub struct PrimeOrderGroup<T,H> {
     pub is_valid: fn(T) -> bool,
     pub is_equal: fn(T, T) -> bool,
     pub add: fn(T, T) -> T,
-    pub scalar_mult: fn(T, Scalar) -> T,
+    pub scalar_mult: fn(T, Vec<u8>) -> T,
     pub random_element: fn() -> T,
     pub uniform_bytes: fn() -> Vec<u8>,
     pub serialize: fn(T) -> Vec<u8>,
