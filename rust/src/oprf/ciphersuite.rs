@@ -9,7 +9,7 @@ use curve25519_dalek::ristretto::RistrettoPoint;
 use super::super::utils::hkdf::Hkdf;
 
 use std::io::Error;
-use super::super::errors::{err_finalization,err_invalid_ciphersuite};
+use super::super::errors::err_finalization;
 
 pub trait Supported {
     fn name(&self) -> String;
@@ -26,17 +26,20 @@ fn get_name<S: Supported>(x: &S) -> String {
     x.name()
 }
 
-pub struct Ciphersuite<G> {
-    name: String,
-    verifiable: bool,
-    pog: G
+#[derive(Debug, Clone)]
+pub struct Ciphersuite<T,H>
+        where PrimeOrderGroup<T,H>: Clone {
+    pub name: String,
+    pub verifiable: bool,
+    pub pog: PrimeOrderGroup<T,H>
 }
 
-impl<T,H> Ciphersuite<PrimeOrderGroup<T,H>>
-        where PrimeOrderGroup<T,H>: Supported, H: Default + digest::Input
-        + digest::BlockInput + digest::FixedOutput + digest::Reset + Clone {
+impl<T,H> Ciphersuite<T,H>
+        where PrimeOrderGroup<T,H>: Supported, T: Clone, H: Default
+        + digest::Input + digest::BlockInput + digest::FixedOutput
+        + digest::Reset + Clone {
     // constructor for the ciphersuite
-    fn new(pog: PrimeOrderGroup<T,H>, verifiable: bool) -> Ciphersuite<PrimeOrderGroup<T,H>> {
+    pub fn new(pog: PrimeOrderGroup<T,H>, verifiable: bool) -> Ciphersuite<T,H> {
         let mut name = String::from("");
         match verifiable {
             true => name.push_str("VOPRF-"),
@@ -90,9 +93,7 @@ impl<T,H> Ciphersuite<PrimeOrderGroup<T,H>>
 
 #[cfg(test)]
 mod tests {
-    use sha2::Sha512;
     use super::{PrimeOrderGroup,Ciphersuite};
-    use curve25519_dalek::ristretto::RistrettoPoint;
 
     #[test]
     fn ristretto_oprf_ciphersuite() {
