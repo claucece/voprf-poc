@@ -123,4 +123,17 @@ mod tests {
         ];
         assert_eq!(ser, test_arr.to_vec())
     }
+
+    #[test]
+    fn ristretto_rand_bytes() {
+        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let r = (pog.uniform_bytes)();
+        let clone = r.clone();
+        assert_eq!(r.len(), pog.byte_length);
+        let fixed = ristretto_convert_vec_to_fixed(r);
+        assert_eq!(fixed.len(), pog.byte_length);
+        for i in 0..pog.byte_length {
+            assert_eq!(clone[i], fixed[i]);
+        }
+    }
 }
