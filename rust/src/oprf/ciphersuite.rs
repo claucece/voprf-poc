@@ -88,3 +88,44 @@ impl<T,H> Ciphersuite<PrimeOrderGroup<T,H>>
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use sha2::Sha512;
+    use super::{PrimeOrderGroup,Ciphersuite};
+    use curve25519_dalek::ristretto::RistrettoPoint;
+
+    #[test]
+    fn ristretto_oprf_ciphersuite() {
+        let ciph = Ciphersuite::new(PrimeOrderGroup::ristretto_255(), false);
+        assert_eq!(ciph.name, String::from("OPRF-ristretto255-SHA512-HKDF-ELL2-RO"));
+        assert_eq!(ciph.verifiable, false);
+    }
+
+    #[test]
+    fn ristretto_voprf_ciphersuite() {
+        let ciph = Ciphersuite::new(PrimeOrderGroup::ristretto_255(), true);
+        assert_eq!(ciph.name, String::from("VOPRF-ristretto255-SHA512-HKDF-ELL2-RO"));
+        assert_eq!(ciph.verifiable, true);
+    }
+
+    #[test]
+    fn ristretto_h1() {
+        let pog = PrimeOrderGroup::ristretto_255();
+        let clone = pog.clone();
+        let ciph = Ciphersuite::new(pog, true);
+        let ge = ciph.h1([0; 32].to_vec());
+        assert_eq!((clone.is_valid)(ge), true);
+    }
+
+    #[test]
+    fn ristretto_h3_h4() {
+        let pog = PrimeOrderGroup::ristretto_255();
+        let ciph = Ciphersuite::new(pog, true);
+        let h3_res = ciph.h3([0; 32].to_vec());
+        let h4_res = ciph.h4([0; 32].to_vec());
+        // should be equal as both functions use the same hash
+        assert_eq!(h3_res, h4_res);
+    }
+
+    // TODO: test vectors for HMAC and HKDF?
+}
