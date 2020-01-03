@@ -1,4 +1,5 @@
 mod oprf;
+mod utils;
 mod errors;
 
 #[cfg(test)]

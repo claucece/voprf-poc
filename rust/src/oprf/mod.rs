@@ -1,14 +1,9 @@
 mod groups;
-use groups::CyclicGroupElement;
+use groups::PrimeOrderGroup;
 
-pub struct Ciphersuite {
-    name: String,
-    verifiable: bool
-}
+use super::utils::hkdf::Hkdf;
 
-impl Ciphersuite {
-
-}
+pub mod ciphersuite;
 
 pub struct Server {
 

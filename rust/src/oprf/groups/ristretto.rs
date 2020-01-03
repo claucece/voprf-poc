@@ -4,14 +4,17 @@ use super::{PrimeOrderGroup,Scalar};
 use std::io::Error;
 use super::super::super::errors::err_deserialization;
 use sha2::Sha512;
+use sha2::Digest;
+use rand::rngs::OsRng;
 
 const RISTRETTO_BYTE_LENGTH: usize = 32;
 
-impl PrimeOrderGroup<RistrettoPoint> {
-    pub fn ristretto_255() -> PrimeOrderGroup<RistrettoPoint> {
+impl PrimeOrderGroup<RistrettoPoint,Sha512> {
+    pub fn ristretto_255() -> PrimeOrderGroup<RistrettoPoint,Sha512> {
         PrimeOrderGroup{
             generator: RISTRETTO_BASEPOINT_POINT,
             byte_length: RISTRETTO_BYTE_LENGTH,
+            hash: || Sha512::new(),
             deserialize: |buf: Vec<u8>| {
                 let mut compressed = CompressedRistretto([0u8; RISTRETTO_BYTE_LENGTH]);
                 compressed.0.copy_from_slice(&buf[..RISTRETTO_BYTE_LENGTH]);
@@ -31,6 +34,10 @@ impl PrimeOrderGroup<RistrettoPoint> {
                 let cmp = p.compress();
                 cmp.to_bytes().to_vec()
             },
+            random: || {
+                let mut rng = OsRng;
+                RistrettoPoint::random(&mut rng)
+            }
         }
     }
 }
@@ -40,12 +47,12 @@ mod tests {
     use rand::rngs::OsRng;
     use super::{RistrettoPoint,Scalar,PrimeOrderGroup};
     use super::err_deserialization;
+    use super::Sha512;
 
     #[test]
     fn ristretto_serialization() {
-        let pog: PrimeOrderGroup<RistrettoPoint> = PrimeOrderGroup::ristretto_255();
-        let mut rng = OsRng;
-        let p = RistrettoPoint::random(&mut rng);
+        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let p = (pog.random)();
         let buf = (pog.serialize)(p);
         let p_chk = (pog.deserialize)(buf)
                         .expect("Failed to deserialize point");
@@ -55,9 +62,8 @@ mod tests {
     #[test]
     fn ristretto_err_ser() {
         // trigger error if buffer is malformed
-        let pog: PrimeOrderGroup<RistrettoPoint> = PrimeOrderGroup::ristretto_255();
-        let mut rng = OsRng;
-        let mut buf = (pog.serialize)(RistrettoPoint::random(&mut rng));
+        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let mut buf = (pog.serialize)((pog.random)());
         // modify the buffer
         buf[0] = buf[0]+1;
         buf[1] = buf[1]+1;
@@ -71,9 +77,9 @@ mod tests {
 
     #[test]
     fn ristretto_point_mult() {
-        let pog: PrimeOrderGroup<RistrettoPoint> = PrimeOrderGroup::ristretto_255();
+        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
+        let p = (pog.random)();
         let mut rng = OsRng;
-        let p = RistrettoPoint::random(&mut rng);
         let r1 = Scalar::random(&mut rng);
         let r2 = Scalar::random(&mut rng);
         let r1_p = (pog.scalar_mult)(p, r1);
@@ -86,7 +92,7 @@ mod tests {
 
     #[test]
     fn ristretto_encode_to_group() {
-        let pog: PrimeOrderGroup<RistrettoPoint> = PrimeOrderGroup::ristretto_255();
+        let pog: PrimeOrderGroup<RistrettoPoint,Sha512> = PrimeOrderGroup::ristretto_255();
         let buf: [u8; 32] = [0; 32];
         let p = (pog.encode_to_group)(buf.to_vec());
         let ser = (pog.serialize)(p);
